@@ -26,7 +26,7 @@ def _parse_function(image_path,lm_path,mask_path):
 	mask = tf.image.decode_png(x3, channels=3)
 	mask = tf.cast(mask,tf.float32)
 
-	return img,lm,mask
+	return img,lm,mask,image_path
 
 def check_lm_bin(dataset,lm_path):
 	if not os.path.isdir(os.path.join(dataset,'lm_bin')):
@@ -34,7 +34,7 @@ def check_lm_bin(dataset,lm_path):
 		for i in range(len(lm_path)):
 			lm = np.loadtxt(lm_path[i])
 			lm = np.reshape(lm,[-1])
-			lm.tofile(os.path.join(dataset,'lm_bin',lm_path[i].split('/')[-1].replace('txt','bin')))	
+			lm.tofile(os.path.join(dataset,'lm_bin',lm_path[i].split('/')[-1].replace('txt','bin')))
 
 def load_dataset(opt,train=True):
 	if train:
