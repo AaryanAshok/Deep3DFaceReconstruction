@@ -1,6 +1,8 @@
-import tensorflow as tf 
-import numpy as np 
+import tensorflow as tf
+import numpy as np
 import os
+import json
+
 from options import Option
 from reconstruction_model import *
 from data_loader import *
@@ -15,22 +17,22 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 # training data and validation data
 def parse_args():
-    desc = "Deep3DFaceReconstruction"
-    parser = argparse.ArgumentParser(description=desc)
+	desc = "Deep3DFaceReconstruction"
+	parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument('--data_path', type=str, default='./processed_data', help='training data folder')
-    parser.add_argument('--val_data_path', type=str, default='./processed_data', help='validation data folder')
-    parser.add_argument('--model_name', type=str, default='./model_test', help='model name')
+	parser.add_argument('--data_path', type=str, default='./processed_data', help='training data folder')
+	parser.add_argument('--val_data_path', type=str, default='./processed_data', help='validation data folder')
+	parser.add_argument('--model_name', type=str, default='./model_test', help='model name')
 
 
-    return parser.parse_args()
+	return parser.parse_args()
 
 # initialize weights for resnet and facenet
 def restore_weights_and_initialize(opt):
 	var_list = tf.trainable_variables()
 	g_list = tf.global_variables()
 
-	# add batch normalization params into trainable variables 
+	# add batch normalization params into trainable variables
 	bn_moving_vars = [g for g in g_list if 'moving_mean' in g.name]
 	bn_moving_vars += [g for g in g_list if 'moving_variance' in g.name]
 	var_list +=bn_moving_vars
@@ -95,6 +97,24 @@ def train():
 		lm_error = model.landmark_loss
 		id_error = model.perceptual_loss
 
+		data_img = model.imgs
+		reco_img = model.render_imgs
+		imgs_path = model.img_paths
+
+		id = model.id_coeff #80
+		ex = model.ex_coeff #64
+		tex = model.tex_coeff   #80
+		f_scale = model.f_scale #1
+		gamma = model.gamma     #27
+		face_shape = model.face_shape
+		face_shape_t = model.face_shape_t
+		face_texture = model.face_texture
+		face_color = model.face_color
+		landmark_p = model.landmark_p
+		img_mask = model.img_mask
+		img_mask_crop = model.img_mask_crop
+
+
 		# load validation data into queue
 		val_iterator = load_dataset(opt,train=False)
 		# send validation data to the model
@@ -113,9 +133,70 @@ def train():
 		sess.graph.finalize()
 
 		# training loop
+		d_folder = os.getcwd() + "/result/" + opt.model_name
+		if not os.path.exists(d_folder+"/data"):
+			os.makedirs(d_folder+"/data")
+
+		if not os.path.exists(d_folder+"/data"+"/o_img"):
+			os.makedirs(d_folder+"/data"+"/o_img")
+		if not os.path.exists(d_folder+"/data"+"/r_img"):
+			os.makedirs(d_folder+"/data"+"/r_img")
+		# if not os.path.exists(d_folder+"/data"+"/s_img"):
+		#   os.makedirs(d_folder+"/data"+"/s_img")
+
+		id_dict = {}
+		ex_dict = {}
+		tex_dict = {}
+		pose_dict = {}
+		light_dict = {}
+		img_list = {}
+
 		for i in range(opt.train_maxiter):
 			_,ph_loss,lm_loss,id_loss = sess.run([train_op,photo_error,lm_error,id_error])
 			print('Iter: %d; lm_loss: %f ; photo_loss: %f; id_loss: %f\n'%(i,np.sqrt(lm_loss),ph_loss,id_loss))
+
+			if np.mod(i,2000) == 0:
+				id_,ex_,tex_,f_scale_,gamma_,face_shape_,face_shape_t_,face_texture_,face_color_,landmark_p_,img_mask_,img_mask_crop_ = sess.run([id,ex,tex,f_scale,gamma,face_shape,face_shape_t,face_texture,face_color,landmark_p,img_mask,img_mask_crop])
+				data_img_,reco_img_,img_path = sess.run([data_img,reco_img,imgs_path])
+                #saving parameters and loss values in files
+				with open(d_folder+"/data/"+"training_losses.txt","a+") as f1:
+					f1.write('%d;%f;%f;%f\n' % (i, np.sqrt(lm_loss), ph_loss, id_loss))
+
+				with open(d_folder+"/data/"+"id_coeff.json","a+") as f2:
+					id_dict["%s"%i] = id_.tolist()  #training parametaers
+					json.dump(id_dict, f2)
+					id_dict.clear()
+
+				with open(d_folder+"/data/"+"ex_coeff.json","a+") as f3:
+					ex_dict["%s"%i] = ex_.tolist()
+					json.dump(ex_dict, f3)
+					ex_dict.clear()
+
+				with open(d_folder+"/data/"+"tex_coeff.json","a+") as f4:
+					tex_dict["%s"%i] = tex_.tolist()
+					json.dump(tex_dict, f4)
+					tex_dict.clear()
+
+				with open(d_folder+"/data/"+"pose_coeff.json","a+") as f5:
+					pose_dict["%s"%i] = face_shape_t_.tolist()
+					json.dump(pose_dict, f5)
+					pose_dict.clear()
+
+				with open(d_folder+"/data/"+"light_coeff.json","a+") as f6:
+					light_dict["%s"%i] = gamma_.tolist()
+					json.dump(light_dict, f6)
+					light_dict.clear()
+
+				i_list = [x.decode("utf-8") for x in img_path]
+				with open(d_folder+"/data/"+"img_list.json","a+") as f7:
+					img_list["%s"%i] = i_list #save the image list in a current batch
+					json.dump(img_list, f7)
+					img_list.clear()
+
+				np.save(d_folder+"/data"+"/o_img/"+"%s_o_img.npy"%i,data_img_) #save the array of images
+				np.save(d_folder+"/data"+"/r_img/"+"%s_r_img.npy"%i,reco_img_)
+				#np.save(d_folder+"/data"+"/s_img/"+"%s_s_img.npy"%i,segm_img_)
+
 			# summarize training stats every <train_summary_iter> iterations
 			if np.mod(i,opt.train_summary_iter) == 0:
 				train_summary = sess.run(train_stat)
@@ -126,16 +207,17 @@ def train():
 				train_img_summary = sess.run(train_img_stat)
 				train_writer.add_summary(train_img_summary,i)
 
-			# summarize validation stats every <val_summary_iter> iterations	
+			# summarize validation stats every <val_summary_iter> iterations
 			if np.mod(i,opt.val_summary_iter) == 0:
 				val_summary,val_img_summary = sess.run([val_stat,val_img_stat])
 				val_writer.add_summary(val_summary,i)
 				val_writer.add_summary(val_img_summary,i)
 
-			# # save model variables every <save_iter> iterations	
+			# # save model variables every <save_iter> iterations
 			if np.mod(i,opt.save_iter) == 0:
 				saver.save(sess,os.path.join(opt.model_save_path,'iter_%d.ckpt'%i))
 
 
 if __name__ == '__main__':
 	train()
+

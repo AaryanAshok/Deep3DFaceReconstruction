@@ -12,18 +12,31 @@ class Reconstruction_model():
 		self.Face3D = face_decoder.Face3D() #analytic 3D face object
 		self.opt = opt # training options
 		self.Optimizer = tf.train.AdamOptimizer(learning_rate = opt.lr) # optimizer
-
 	# load input data from queue
 	def set_input(self,input_iterator):
-		self.imgs,self.lm_labels,self.attention_masks = input_iterator.get_next()
-
-	# forward process of the model
+		self.imgs,self.lm_labels,self.attention_masks,self.img_paths = input_iterator.get_next()
+# forward process of the model
 	def forward(self,is_train = True):
 
 		with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
 			self.coeff = networks.R_Net(self.imgs,is_training=is_train)
 
 			self.Face3D.Reconstruction_Block(self.coeff,self.opt)
+            # parameters to be saved
+			self.id_coeff = self.Face3D.id_coeff
+			self.ex_coeff = self.Face3D.ex_coeff
+			self.tex_coeff = self.Face3D.tex_coeff
+			self.f_scale = self.Face3D.f_scale
+			self.gamma = self.Face3D.gamma
+			self.face_shape = self.Face3D.face_shape
+			self.face_shape_t = self.Face3D.face_shape_t
+			self.face_texture = self.Face3D.face_texture
+			self.face_color = self.Face3D.face_color
+			self.landmark_p = self.Face3D.landmark_p
+			self.render_imgs = self.Face3D.render_imgs
+			self.img_mask = self.Face3D.img_mask
+			self.img_mask_crop = self.Face3D.img_mask_crop
+
 
 			self.id_labels = networks.Perceptual_Net(self.imgs)
 			self.id_features = networks.Perceptual_Net(self.Face3D.render_imgs)
@@ -39,7 +52,6 @@ class Reconstruction_model():
 
 			self.loss = self.opt.w_photo*self.photo_loss + self.opt.w_lm*self.landmark_loss + self.opt.w_id*self.perceptual_loss\
 			+ self.opt.w_reg*self.reg_loss + self.opt.w_ref*self.reflect_loss + self.opt.w_gamma*self.gamma_loss
-
 	# backward process
 	def backward(self,is_train = True):
 		if is_train:
@@ -50,18 +62,16 @@ class Reconstruction_model():
 			# get train_op with update_ops to ensure updating for bn parameters
 			with tf.control_dependencies(update_ops):
 				self.train_op = self.Optimizer.apply_gradients(zip(grads,update_var_list),global_step = self.opt.global_step)
-
-		# if not training stage, avoid updating variables 
+		# if not training stage, avoid updating variables
 		else:
 			pass
 
-	# forward and backward
+		# forward and backward
 	def step(self, is_train = True):
 		with tf.variable_scope(tf.get_variable_scope()) as scope:
 			self.forward(is_train = is_train)
-		self.backward(is_train = is_train)
-
-	# statistics summarization
+			self.backward(is_train = is_train)
+# statistics summarization
 	def summarize(self):
 
 		# scalar and histogram stats
@@ -83,4 +93,4 @@ class Reconstruction_model():
 		render_imgs = tf.cast(render_imgs,tf.uint8)
 		# image stats
 		img_stat = [tf.summary.image('imgs',tf.concat([tf.cast(self.imgs[:,:,:,::-1],tf.uint8),render_imgs],axis = 2), max_outputs = 8)]
-		self.summary_img = tf.summary.merge(img_stat) 
+		self.summary_img = tf.summary.merge(img_stat)

@@ -51,7 +51,7 @@ class Option():
 		self.global_step = tf.Variable(0,name='global_step',trainable = False)
 		self.lr = tf.train.piecewise_constant(self.global_step,self.boundaries,lr)
 		self.augment = True
-		self.train_maxiter = 200000
+		self.train_maxiter = 200001
 		self.train_summary_iter = 50
 		self.image_summary_iter = 200
 		self.val_summary_iter = 1000
